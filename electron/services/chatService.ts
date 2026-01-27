@@ -328,7 +328,7 @@ class ChatService {
         const cached = this.avatarCache.get(username)
         // 如果缓存有效且有头像，直接使用；如果没有头像，也需要重新尝试获取
         // 额外检查：如果头像是无效的 hex 格式（以 ffd8 开头），也需要重新获取
-        const isValidAvatar = cached?.avatarUrl && 
+        const isValidAvatar = cached?.avatarUrl &&
           !cached.avatarUrl.includes('base64,ffd8') // 检测错误的 hex 格式
         if (cached && now - cached.updatedAt < this.avatarCacheTtlMs && isValidAvatar) {
           result[username] = {
@@ -3098,7 +3098,7 @@ class ChatService {
 
   private resolveAccountDir(dbPath: string, wxid: string): string | null {
     const normalized = dbPath.replace(/[\\\\/]+$/, '')
-    
+
     // 如果 dbPath 本身指向 db_storage 目录下的文件（如某个 .db 文件）
     // 则向上回溯到账号目录
     if (basename(normalized).toLowerCase() === 'db_storage') {
@@ -3108,14 +3108,14 @@ class ChatService {
     if (basename(dir).toLowerCase() === 'db_storage') {
       return dirname(dir)
     }
-    
+
     // 否则，dbPath 应该是数据库根目录（如 xwechat_files）
     // 账号目录应该是 {dbPath}/{wxid}
     const accountDirWithWxid = join(normalized, wxid)
     if (existsSync(accountDirWithWxid)) {
       return accountDirWithWxid
     }
-    
+
     // 兜底：返回 dbPath 本身（可能 dbPath 已经是账号目录）
     return normalized
   }
