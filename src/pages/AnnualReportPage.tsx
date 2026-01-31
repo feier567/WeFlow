@@ -25,8 +25,8 @@ function AnnualReportPage() {
       const result = await window.electronAPI.annualReport.getAvailableYears()
       if (result.success && result.data && result.data.length > 0) {
         setAvailableYears(result.data)
-        setSelectedYear(result.data[0])
-        setSelectedPairYear(result.data[0])
+        setSelectedYear((prev) => prev ?? result.data[0])
+        setSelectedPairYear((prev) => prev ?? result.data[0])
       } else if (!result.success) {
         setLoadError(result.error || '加载年度数据失败')
       }

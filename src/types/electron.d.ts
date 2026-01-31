@@ -352,6 +352,12 @@ export interface ElectronAPI {
           isSentByMe: boolean
           senderUsername?: string
         } | null
+        firstChatMessages?: Array<{
+          content: string
+          isSentByMe: boolean
+          createTime: number
+          createTimeStr: string
+        }>
         yearFirstChat?: {
           createTime: number
           createTimeStr: string

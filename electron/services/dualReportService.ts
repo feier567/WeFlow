@@ -34,6 +34,7 @@ export interface DualReportData {
   friendUsername: string
   friendName: string
   firstChat: DualReportFirstChat | null
+  firstChatMessages?: DualReportMessage[]
   yearFirstChat?: {
     createTime: number
     createTimeStr: string
@@ -210,12 +211,23 @@ class DualReportService {
     beginTimestamp: number,
     endTimestamp: number
   ): Promise<any[]> {
-    const cursorResult = await wcdbService.openMessageCursor(sessionId, Math.max(1, limit), true, beginTimestamp, endTimestamp)
+    const safeBegin = Math.max(0, beginTimestamp || 0)
+    const safeEnd = endTimestamp && endTimestamp > 0 ? endTimestamp : Math.floor(Date.now() / 1000)
+    const cursorResult = await wcdbService.openMessageCursor(sessionId, Math.max(1, limit), true, safeBegin, safeEnd)
     if (!cursorResult.success || !cursorResult.cursor) return []
     try {
-      const batch = await wcdbService.fetchMessageBatch(cursorResult.cursor)
-      if (!batch.success || !batch.rows) return []
-      return batch.rows.slice(0, limit)
+      const rows: any[] = []
+      let hasMore = true
+      while (hasMore && rows.length < limit) {
+        const batch = await wcdbService.fetchMessageBatch(cursorResult.cursor)
+        if (!batch.success || !batch.rows) break
+        for (const row of batch.rows) {
+          rows.push(row)
+          if (rows.length >= limit) break
+        }
+        hasMore = batch.hasMore === true
+      }
+      return rows.slice(0, limit)
     } finally {
       await wcdbService.closeMessageCursor(cursorResult.cursor)
     }
@@ -251,7 +263,7 @@ class DualReportService {
       }
 
       this.reportProgress('获取首条聊天记录...', 15, onProgress)
-      const firstRows = await this.getFirstMessages(friendUsername, 1, 0, 0)
+      const firstRows = await this.getFirstMessages(friendUsername, 3, 0, 0)
       let firstChat: DualReportFirstChat | null = null
       if (firstRows.length > 0) {
         const row = firstRows[0]
@@ -265,6 +277,16 @@ class DualReportService {
           senderUsername: row.sender_username || row.sender
         }
       }
+      const firstChatMessages: DualReportMessage[] = firstRows.map((row) => {
+        const msgTime = parseInt(row.create_time || '0', 10) * 1000
+        const msgContent = this.decodeMessageContent(row.message_content, row.compress_content)
+        return {
+          content: String(msgContent || ''),
+          isSentByMe: this.resolveIsSent(row, rawWxid, cleanedWxid),
+          createTime: msgTime,
+          createTimeStr: this.formatDateTime(msgTime)
+        }
+      })
 
       let yearFirstChat: DualReportData['yearFirstChat'] = null
       if (!isAllTime) {
@@ -417,6 +439,7 @@ class DualReportService {
         friendUsername,
         friendName,
         firstChat,
+        firstChatMessages,
         yearFirstChat,
         stats,
         topPhrases
