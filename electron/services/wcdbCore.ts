@@ -155,63 +155,7 @@ export class WcdbCore {
     return this.startMonitor(callback)
   }
 
-  /**
-   * 获取指定时间之后的新消息（增量更新）
-   */
-  getNewMessages(sessionId: string, minTime: number, limit: number = 1000): { success: boolean; messages?: any[]; error?: string } {
-    if (!this.handle || !this.wcdbOpenMessageCursorLite || !this.wcdbFetchMessageBatch || !this.wcdbCloseMessageCursor) {
-      return { success: false, error: 'Database not handled or functions missing' }
-    }
 
-    // 1. Open Cursor
-    const cursorPtr = Buffer.alloc(8) // int64*
-    // wcdb_open_message_cursor_lite(handle, sessionId, batchSize, ascending, beginTime, endTime, outCursor)
-    // ascending=1 (ASC) to get messages AFTER minTime ordered by time
-    // beginTime = minTime + 1 (to avoid duplicate of the last message)
-    // Actually, let's use minTime, user logic might handle duplication or we just pass strictly greater
-    // C++ logic: create_time >= beginTimestamp. So if we want new messages, passing lastTimestamp + 1 is safer.
-    const openRes = this.wcdbOpenMessageCursorLite(this.handle, sessionId, limit, 1, minTime, 0, cursorPtr)
-
-    if (openRes !== 0) {
-      return { success: false, error: `Open cursor failed: ${openRes}` }
-    }
-
-    // Read int64 from buffer
-    const cursor = cursorPtr.readBigInt64LE(0)
-
-    // 2. Fetch Batch
-    const outJsonPtr = Buffer.alloc(8) // void**
-    const outHasMorePtr = Buffer.alloc(4) // int32*
-
-    // fetch_message_batch(handle, cursor, outJson, outHasMore)
-    const fetchRes = this.wcdbFetchMessageBatch(this.handle, cursor, outJsonPtr, outHasMorePtr)
-
-    let messages: any[] = []
-    if (fetchRes === 0) {
-      const jsonPtr = outJsonPtr.readBigInt64LE(0) // void* address
-      if (jsonPtr !== 0n) {
-        // koffi decode string
-        const jsonStr = this.koffi.decode(jsonPtr, 'string')
-        this.wcdbFreeString(jsonPtr) // Must free
-        if (jsonStr) {
-          try {
-            messages = JSON.parse(jsonStr)
-          } catch (e) {
-            console.error('Parse messages failed', e)
-          }
-        }
-      }
-    }
-
-    // 3. Close Cursor
-    this.wcdbCloseMessageCursor(this.handle, cursor)
-
-    if (fetchRes !== 0) {
-      return { success: false, error: `Fetch batch failed: ${fetchRes}` }
-    }
-
-    return { success: true, messages }
-  }
 
   /**
    * 获取 DLL 路径
@@ -994,6 +938,37 @@ export class WcdbCore {
       if (!jsonStr) return { success: false, error: '解析消息失败' }
       const messages = JSON.parse(jsonStr)
       return { success: true, messages }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  /**
+   * 获取指定时间之后的新消息
+   */
+  async getNewMessages(sessionId: string, minTime: number, limit: number = 1000): Promise<{ success: boolean; messages?: any[]; error?: string }> {
+    if (!this.ensureReady()) {
+      return { success: false, error: 'WCDB 未连接' }
+    }
+    try {
+      // 1. 打开游标 (使用 Ascending=1 从指定时间往后查)
+      const openRes = await this.openMessageCursorLite(sessionId, limit, true, minTime, 0)
+      if (!openRes.success || !openRes.cursor) {
+        return { success: false, error: openRes.error }
+      }
+
+      const cursor = openRes.cursor
+      try {
+        // 2. 获取批次
+        const fetchRes = await this.fetchMessageBatch(cursor)
+        if (!fetchRes.success) {
+          return { success: false, error: fetchRes.error }
+        }
+        return { success: true, messages: fetchRes.rows }
+      } finally {
+        // 3. 关闭游标
+        await this.closeMessageCursor(cursor)
+      }
     } catch (e) {
       return { success: false, error: String(e) }
     }

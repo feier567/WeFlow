@@ -192,6 +192,7 @@ function ChatPage(_props: ChatPageProps) {
   const isLoadingMessagesRef = useRef(false)
   const isLoadingMoreRef = useRef(false)
   const isConnectedRef = useRef(false)
+  const isRefreshingRef = useRef(false)
   const searchKeywordRef = useRef('')
   const preloadImageKeysRef = useRef<Set<string>>(new Set())
   const lastPreloadSessionRef = useRef<string | null>(null)
@@ -320,6 +321,7 @@ function ChatPage(_props: ChatPageProps) {
           }
 
           setSessions(nextSessions)
+          sessionsRef.current = nextSessions
           // 立即启动联系人信息加载，不再延迟 500ms
           void enrichSessionsContactInfo(nextSessions)
         } else {
@@ -566,10 +568,13 @@ function ChatPage(_props: ChatPageProps) {
    * (由用户建议：记住上一条消息时间，自动取之后的并渲染，然后后台兜底全量同步)
    */
   const handleIncrementalRefresh = async () => {
-    if (!currentSessionId || isRefreshingMessages) return
+    if (!currentSessionId || isRefreshingRef.current) return
+    isRefreshingRef.current = true
+    setIsRefreshingMessages(true)
 
-    // 找出当前已渲染消息中的最大时间戳
-    const lastMsg = messages[messages.length - 1]
+    // 找出当前已渲染消息中的最大时间戳（使用 getState 获取最新状态，避免闭包过时导致重复）
+    const currentMessages = useChatStore.getState().messages
+    const lastMsg = currentMessages[currentMessages.length - 1]
     const minTime = lastMsg?.createTime || 0
 
     // 1. 优先执行增量查询并渲染（第一步）
@@ -581,8 +586,9 @@ function ChatPage(_props: ChatPageProps) {
       }
 
       if (result.success && result.messages && result.messages.length > 0) {
-        // 过滤去重
-        const existingKeys = new Set(messages.map(getMessageKey))
+        // 过滤去重：必须对比实时的状态，防止在 handleRefreshMessages 运行期间导致的冲突
+        const latestMessages = useChatStore.getState().messages
+        const existingKeys = new Set(latestMessages.map(getMessageKey))
         const newOnes = result.messages.filter(m => !existingKeys.has(getMessageKey(m)))
 
         if (newOnes.length > 0) {
@@ -598,18 +604,19 @@ function ChatPage(_props: ChatPageProps) {
       }
     } catch (e) {
       console.warn('[IncrementalRefresh] 失败，将依赖全量同步兜底:', e)
+    } finally {
+      isRefreshingRef.current = false
+      setIsRefreshingMessages(false)
     }
-
-    // 2. 后台兜底：执行之前的完整游标刷新，确保没有遗漏（比如跨库的消息）
-    void handleRefreshMessages()
   }
 
   const handleRefreshMessages = async () => {
-    if (!currentSessionId || isRefreshingMessages) return
+    if (!currentSessionId || isRefreshingRef.current) return
     setJumpStartTime(0)
     setJumpEndTime(0)
     setHasMoreLater(false)
     setIsRefreshingMessages(true)
+    isRefreshingRef.current = true
     try {
       // 获取最新消息并增量添加
       const result = await window.electronAPI.chat.getLatestMessages(currentSessionId, 50) as {
@@ -620,13 +627,17 @@ function ChatPage(_props: ChatPageProps) {
       if (!result.success || !result.messages) {
         return
       }
-      const existing = new Set(messages.map(getMessageKey))
-      const lastMsg = messages[messages.length - 1]
+      // 使用实时状态进行去重对比
+      const latestMessages = useChatStore.getState().messages
+      const existing = new Set(latestMessages.map(getMessageKey))
+      const lastMsg = latestMessages[latestMessages.length - 1]
       const lastTime = lastMsg?.createTime ?? 0
+
       const newMessages = result.messages.filter((msg) => {
         const key = getMessageKey(msg)
         if (existing.has(key)) return false
-        if (lastTime > 0 && msg.createTime < lastTime) return false
+        // 这里的 lastTime 仅作参考过滤，主要的去重靠 key
+        if (lastTime > 0 && msg.createTime < lastTime - 3600) return false // 仅过滤 1 小时之前的冗余请求
         return true
       })
       if (newMessages.length > 0) {
@@ -642,6 +653,7 @@ function ChatPage(_props: ChatPageProps) {
     } catch (e) {
       console.error('刷新消息失败:', e)
     } finally {
+      isRefreshingRef.current = false
       setIsRefreshingMessages(false)
     }
   }

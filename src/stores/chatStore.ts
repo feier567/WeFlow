@@ -80,11 +80,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setMessages: (messages) => set({ messages }),
 
-  appendMessages: (newMessages, prepend = false) => set((state) => ({
-    messages: prepend
-      ? [...newMessages, ...state.messages]
-      : [...state.messages, ...newMessages]
-  })),
+  appendMessages: (newMessages, prepend = false) => set((state) => {
+    // 强制去重逻辑
+    const getMsgKey = (m: Message) => {
+      if (m.localId && m.localId > 0) return `l:${m.localId}`
+      return `t:${m.createTime}:${m.sortSeq || 0}:${m.serverId || 0}`
+    }
+    const existingKeys = new Set(state.messages.map(getMsgKey))
+    const filtered = newMessages.filter(m => !existingKeys.has(getMsgKey(m)))
+
+    if (filtered.length === 0) return state
+
+    return {
+      messages: prepend
+        ? [...filtered, ...state.messages]
+        : [...state.messages, ...filtered]
+    }
+  }),
 
   setLoadingMessages: (loading) => set({ isLoadingMessages: loading }),
   setLoadingMore: (loading) => set({ isLoadingMore: loading }),
