@@ -93,99 +93,16 @@ class GroupAnalyticsService {
     return { success: true }
   }
 
-  private looksLikeHex(s: string): boolean {
-    if (s.length % 2 !== 0) return false
-    return /^[0-9a-fA-F]+$/.test(s)
-  }
-
-  private looksLikeBase64(s: string): boolean {
-    if (s.length % 4 !== 0) return false
-    return /^[A-Za-z0-9+/=]+$/.test(s)
-  }
-
   /**
-   * 解析 ext_buffer 二进制数据，提取群成员的群昵称
-   */
-  private parseGroupNicknamesFromExtBuffer(buffer: Buffer): Map<string, string> {
-    const nicknameMap = new Map<string, string>()
-
-    try {
-      const raw = buffer.toString('utf8')
-      const wxidPattern = /wxid_[a-z0-9_]+/gi
-      const wxids = raw.match(wxidPattern) || []
-
-      for (const wxid of wxids) {
-        const wxidLower = wxid.toLowerCase()
-        const wxidIndex = raw.toLowerCase().indexOf(wxidLower)
-        if (wxidIndex === -1) continue
-
-        const afterWxid = raw.slice(wxidIndex + wxid.length)
-        let nickname = ''
-        let foundStart = false
-
-        for (let i = 0; i < afterWxid.length && i < 100; i++) {
-          const char = afterWxid[i]
-          const code = char.charCodeAt(0)
-          const isPrintable = (
-            (code >= 0x4E00 && code <= 0x9FFF) ||
-            (code >= 0x3000 && code <= 0x303F) ||
-            (code >= 0xFF00 && code <= 0xFFEF) ||
-            (code >= 0x20 && code <= 0x7E)
-          )
-
-          if (isPrintable && code !== 0x01 && code !== 0x18) {
-            foundStart = true
-            nickname += char
-          } else if (foundStart) {
-            break
-          }
-        }
-
-        nickname = nickname.trim().replace(/[\x00-\x1F\x7F]/g, '')
-        if (nickname && nickname.length < 50) {
-          nicknameMap.set(wxidLower, nickname)
-        }
-      }
-    } catch (e) {
-      console.error('Failed to parse ext_buffer:', e)
-    }
-
-    return nicknameMap
-  }
-
-  /**
-   * 从 contact.db 的 chat_room 表获取群成员的群昵称
+   * 从 DLL 获取群成员的群昵称
    */
   private async getGroupNicknamesForRoom(chatroomId: string): Promise<Map<string, string>> {
     try {
-      const sql = `SELECT ext_buffer FROM chat_room WHERE username = '${chatroomId.replace(/'/g, "''")}'`
-      const result = await wcdbService.execQuery('contact', null, sql)
-
-      if (!result.success || !result.rows || result.rows.length === 0) {
-        return new Map<string, string>()
+      const result = await wcdbService.getGroupNicknames(chatroomId)
+      if (result.success && result.nicknames) {
+        return new Map(Object.entries(result.nicknames))
       }
-
-      let extBuffer = result.rows[0].ext_buffer
-
-      if (typeof extBuffer === 'string') {
-        if (this.looksLikeHex(extBuffer)) {
-          extBuffer = Buffer.from(extBuffer, 'hex')
-        } else if (this.looksLikeBase64(extBuffer)) {
-          extBuffer = Buffer.from(extBuffer, 'base64')
-        } else {
-          try {
-            extBuffer = Buffer.from(extBuffer, 'hex')
-          } catch {
-            extBuffer = Buffer.from(extBuffer, 'base64')
-          }
-        }
-      }
-
-      if (!extBuffer || !Buffer.isBuffer(extBuffer)) {
-        return new Map<string, string>()
-      }
-
-      return this.parseGroupNicknamesFromExtBuffer(extBuffer)
+      return new Map<string, string>()
     } catch (e) {
       console.error('getGroupNicknamesForRoom error:', e)
       return new Map<string, string>()

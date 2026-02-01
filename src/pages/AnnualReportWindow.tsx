@@ -71,6 +71,20 @@ interface AnnualReportData {
   socialInitiative?: { initiatedChats: number; receivedChats: number; initiativeRate: number } | null
   responseSpeed?: { avgResponseTime: number; fastestFriend: string; fastestTime: number } | null
   topPhrases?: { phrase: string; count: number }[]
+  snsStats?: {
+    totalPosts: number
+    typeCounts?: Record<string, number>
+    topLikers: { username: string; displayName: string; avatarUrl?: string; count: number }[]
+    topLiked: { username: string; displayName: string; avatarUrl?: string; count: number }[]
+  }
+  lostFriend: {
+    username: string
+    displayName: string
+    avatarUrl?: string
+    earlyCount: number
+    lateCount: number
+    periodDesc: string
+  } | null
 }
 
 interface SectionInfo {
@@ -274,6 +288,8 @@ function AnnualReportWindow() {
     responseSpeed: useRef<HTMLElement>(null),
     topPhrases: useRef<HTMLElement>(null),
     ranking: useRef<HTMLElement>(null),
+    sns: useRef<HTMLElement>(null),
+    lostFriend: useRef<HTMLElement>(null),
     ending: useRef<HTMLElement>(null),
   }
 
@@ -373,10 +389,16 @@ function AnnualReportWindow() {
     if (reportData.responseSpeed) {
       sections.push({ id: 'responseSpeed', name: '回应速度', ref: sectionRefs.responseSpeed })
     }
+    if (reportData.lostFriend) {
+      sections.push({ id: 'lostFriend', name: '曾经的好朋友', ref: sectionRefs.lostFriend })
+    }
     if (reportData.topPhrases && reportData.topPhrases.length > 0) {
       sections.push({ id: 'topPhrases', name: '年度常用语', ref: sectionRefs.topPhrases })
     }
     sections.push({ id: 'ranking', name: '好友排行', ref: sectionRefs.ranking })
+    if (reportData.snsStats && reportData.snsStats.totalPosts > 0) {
+      sections.push({ id: 'sns', name: '朋友圈', ref: sectionRefs.sns })
+    }
     sections.push({ id: 'ending', name: '尾声', ref: sectionRefs.ending })
     return sections
   }
@@ -741,7 +763,7 @@ function AnnualReportWindow() {
     )
   }
 
-  const { year, totalMessages, totalFriends, coreFriends, monthlyTopFriends, peakDay, longestStreak, activityHeatmap, midnightKing, selfAvatarUrl, mutualFriend, socialInitiative, responseSpeed, topPhrases } = reportData
+  const { year, totalMessages, totalFriends, coreFriends, monthlyTopFriends, peakDay, longestStreak, activityHeatmap, midnightKing, selfAvatarUrl, mutualFriend, socialInitiative, responseSpeed, topPhrases, lostFriend } = reportData
   const topFriend = coreFriends[0]
   const mostActive = getMostActiveTime(activityHeatmap.data)
   const socialStoryName = topFriend?.displayName || '好友'
@@ -1024,6 +1046,41 @@ function AnnualReportWindow() {
             </section>
           )}
 
+          {/* 曾经的好朋友 */}
+          {lostFriend && (
+            <section className="section" ref={sectionRefs.lostFriend}>
+              <div className="label-text">曾经的好朋友</div>
+              <h2 className="hero-title">{lostFriend.displayName}</h2>
+              <div className="big-stat">
+                <span className="stat-num">{formatNumber(lostFriend.earlyCount)}</span>
+                <span className="stat-unit">条消息</span>
+              </div>
+              <p className="hero-desc">
+                在 <span className="hl">{lostFriend.periodDesc}</span>
+                <br />你们曾有聊不完的话题
+              </p>
+              <div className="lost-friend-visual">
+                <div className="avatar-group sender">
+                  <Avatar url={lostFriend.avatarUrl} name={lostFriend.displayName} size="lg" />
+                  <span className="avatar-label">TA</span>
+                </div>
+                <div className="fading-line">
+                  <div className="line-path" />
+                  <div className="line-glow" />
+                  <div className="flow-particle" />
+                </div>
+                <div className="avatar-group receiver">
+                  <Avatar url={selfAvatarUrl} name="我" size="lg" />
+                  <span className="avatar-label">我</span>
+                </div>
+              </div>
+              <p className="hero-desc fading">
+                人类发明后悔
+                <br />来证明拥有的珍贵
+              </p>
+            </section>
+          )}
+
           {/* 年度常用语 - 词云 */}
           {topPhrases && topPhrases.length > 0 && (
             <section className="section" ref={sectionRefs.topPhrases}>
@@ -1038,6 +1095,57 @@ function AnnualReportWindow() {
               </p>
               <WordCloud words={topPhrases} />
               <p className="hero-desc word-cloud-note">颜色越深代表出现频率越高</p>
+            </section>
+          )}
+
+          {/* 朋友圈 */}
+          {reportData.snsStats && reportData.snsStats.totalPosts > 0 && (
+            <section className="section" ref={sectionRefs.sns}>
+              <div className="label-text">朋友圈</div>
+              <h2 className="hero-title">记录生活时刻</h2>
+              <p className="hero-desc">
+                这一年，你发布了
+              </p>
+              <div className="big-stat">
+                <span className="stat-num">{reportData.snsStats.totalPosts}</span>
+                <span className="stat-unit">条朋友圈</span>
+              </div>
+
+              <div className="sns-stats-container" style={{ display: 'flex', gap: '60px', marginTop: '40px', justifyContent: 'center' }}>
+                {reportData.snsStats.topLikers.length > 0 && (
+                  <div className="sns-sub-stat" style={{ textAlign: 'left' }}>
+                    <h3 className="sub-title" style={{ fontSize: '18px', marginBottom: '16px', opacity: 0.8, borderBottom: '1px solid currentColor', paddingBottom: '8px' }}>更关心你的Ta</h3>
+                    <div className="mini-ranking">
+                      {reportData.snsStats.topLikers.slice(0, 3).map((u, i) => (
+                        <div key={i} className="mini-rank-item" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+                          <Avatar url={u.avatarUrl} name={u.displayName} size="sm" />
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span className="name" style={{ fontSize: '15px', fontWeight: 500, maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.displayName}</span>
+                          </div>
+                          <span className="count hl" style={{ fontSize: '14px', marginLeft: 'auto' }}>{u.count}赞</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {reportData.snsStats.topLiked.length > 0 && (
+                  <div className="sns-sub-stat" style={{ textAlign: 'left' }}>
+                    <h3 className="sub-title" style={{ fontSize: '18px', marginBottom: '16px', opacity: 0.8, borderBottom: '1px solid currentColor', paddingBottom: '8px' }}>你最关心的Ta</h3>
+                    <div className="mini-ranking">
+                      {reportData.snsStats.topLiked.slice(0, 3).map((u, i) => (
+                        <div key={i} className="mini-rank-item" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+                          <Avatar url={u.avatarUrl} name={u.displayName} size="sm" />
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span className="name" style={{ fontSize: '15px', fontWeight: 500, maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.displayName}</span>
+                          </div>
+                          <span className="count hl" style={{ fontSize: '14px', marginLeft: 'auto' }}>{u.count}赞</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </section>
           )}
 
